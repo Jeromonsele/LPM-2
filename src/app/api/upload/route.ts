@@ -4,6 +4,7 @@ import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { promises as fs } from "fs";
 import path from "path";
+import { jobsQueue, defaultOpts } from "@/lib/queue";
 
 export const runtime = "nodejs";
 
@@ -78,6 +79,8 @@ export async function POST(req: Request) {
       data: { status: "SUCCEEDED", progress: 100, message: "Analysis complete" },
     });
 
+    // Enqueue transcription in worker (for audio/video in production)
+    await jobsQueue.add("job", { kind: "TRANSCRIBE", sourceId: source.id, orgId: currentOrgId }, defaultOpts);
     return NextResponse.json({ sourceId: source.id, jobId: job.id });
   } catch (error) {
     return NextResponse.json({ error: (error as Error).message }, { status: 500 });
