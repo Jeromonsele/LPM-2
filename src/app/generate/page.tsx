@@ -18,9 +18,33 @@ export default function GeneratePage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    let timer: any;
-    if (jobId) {
-      timer = setInterval(async () => {
+    if (!jobId) return;
+
+    // Use Server-Sent Events for real-time updates
+    const eventSource = new EventSource(`/api/jobs/stream?jobId=${jobId}`);
+    
+    eventSource.onmessage = (event) => {
+      const data = JSON.parse(event.data);
+      
+      if (data.error) {
+        setError(data.error);
+        eventSource.close();
+        return;
+      }
+      
+      setJobStatus(`${data.status}${data.message ? `: ${data.message}` : ""}`);
+      setJobProgress(data.progress ?? 0);
+      
+      if (data.status === "SUCCEEDED" || data.status === "FAILED") {
+        eventSource.close();
+      }
+    };
+    
+    eventSource.onerror = (error) => {
+      console.error("SSE error:", error);
+      eventSource.close();
+      // Fallback to polling if SSE fails
+      const timer = setInterval(async () => {
         const res = await fetch(`/api/jobs/${jobId}`);
         const data = await res.json();
         if (res.ok) {
@@ -30,23 +54,36 @@ export default function GeneratePage() {
             clearInterval(timer);
           }
         }
-      }, 1000);
-    }
-    return () => timer && clearInterval(timer);
+      }, 2000);
+      
+      return () => clearInterval(timer);
+    };
+    
+    return () => {
+      eventSource.close();
+    };
   }, [jobId]);
 
   async function onUpload() {
     if (!file) return;
     setError(null);
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch("/api/upload", { method: "POST", body: form });
-    const data = await res.json();
-    if (!res.ok) {
-      setError(data.error || "Upload failed");
-      return;
+    try {
+      const presignRes = await fetch("/api/uploads/presign", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fileName: file.name, contentType: file.type, sizeBytes: file.size }),
+      });
+      const presign = await presignRes.json();
+      if (!presignRes.ok) throw new Error(presign.error || "Presign failed");
+      const putRes = await fetch(presign.uploadUrl, { method: "PUT", body: file, headers: { "Content-Type": file.type, "x-upsert": "false" } });
+      if (!putRes.ok) throw new Error("Upload failed");
+      const processRes = await fetch("/api/source/process", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ sourceId: presign.sourceId }) });
+      const { jobId } = await processRes.json();
+      if (!processRes.ok) throw new Error("Process failed");
+      setJobId(jobId);
+    } catch (e: any) {
+      setError(e.message);
     }
-    setJobId(data.jobId);
   }
 
   async function generate() {

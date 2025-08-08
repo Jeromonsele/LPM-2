@@ -1,28 +1,92 @@
-import { NextResponse } from "next/server";
-import { jobsEvents } from "@/lib/queue";
+import { NextRequest, NextResponse } from "next/server";
+import prisma from "@/lib/prisma";
 
 export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
 
-// Simple SSE stream stub; hook this up to Redis pub/sub in Sprint 2
-export async function GET(req: Request) {
+// SSE stream for real-time job status updates
+export async function GET(req: NextRequest) {
+  const jobId = req.nextUrl.searchParams.get("jobId");
+  if (!jobId) {
+    return new Response("Missing jobId parameter", { status: 400 });
+  }
+
   const encoder = new TextEncoder();
-  const url = new URL(req.url);
-  const targetJobId = url.searchParams.get("jobId");
   const stream = new ReadableStream({
-    start(controller) {
-      const send = (event: string, data: unknown) => {
-        controller.enqueue(encoder.encode(`event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`));
+    async start(controller) {
+      const sendEvent = (data: any) => {
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(data)}\n\n`));
       };
-      const onCompleted = ({ jobId, returnvalue }: any) => {
-        if (!targetJobId || targetJobId === String(jobId)) send("completed", { jobId, returnvalue });
-      };
-      const onFailed = ({ jobId, failedReason }: any) => {
-        if (!targetJobId || targetJobId === String(jobId)) send("failed", { jobId, failedReason });
-      };
-      jobsEvents.on("completed", onCompleted);
-      jobsEvents.on("failed", onFailed);
+
+      let previousStatus = "";
+      let previousProgress = -1;
+      let attempts = 0;
+      const maxAttempts = 120; // 2 minutes max
+
+      const interval = setInterval(async () => {
+        try {
+          attempts++;
+          const job = await prisma.job.findUnique({
+            where: { id: jobId },
+            select: {
+              id: true,
+              status: true,
+              progress: true,
+              message: true,
+              updatedAt: true,
+            },
+          });
+
+          if (!job) {
+            sendEvent({ error: "Job not found" });
+            clearInterval(interval);
+            controller.close();
+            return;
+          }
+
+          // Send update if status or progress changed
+          if (job.status !== previousStatus || job.progress !== previousProgress || attempts === 1) {
+            sendEvent({
+              id: job.id,
+              status: job.status,
+              progress: job.progress,
+              message: job.message,
+              updatedAt: job.updatedAt,
+            });
+            previousStatus = job.status;
+            previousProgress = job.progress;
+          }
+
+          // Close stream on terminal states
+          if (job.status === "SUCCEEDED" || job.status === "FAILED") {
+            setTimeout(() => {
+              clearInterval(interval);
+              controller.close();
+            }, 100);
+          }
+
+          // Timeout after max attempts
+          if (attempts >= maxAttempts) {
+            sendEvent({ error: "Stream timeout" });
+            clearInterval(interval);
+            controller.close();
+          }
+        } catch (error) {
+          console.error("Stream error:", error);
+          sendEvent({ error: "Stream error" });
+          clearInterval(interval);
+          controller.close();
+        }
+      }, 1000); // Poll every second
+
+      // Cleanup on client disconnect
+      req.signal?.addEventListener("abort", () => {
+        clearInterval(interval);
+        controller.close();
+      });
     },
   });
+
   return new NextResponse(stream, {
     headers: {
       "Content-Type": "text/event-stream",

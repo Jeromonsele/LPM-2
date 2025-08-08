@@ -5,6 +5,8 @@ import { cookies } from "next/headers";
 import { promises as fs } from "fs";
 import path from "path";
 import { jobsQueue, defaultOpts } from "@/lib/queue";
+import pdfParse from "pdf-parse";
+import mammoth from "mammoth";
 
 export const runtime = "nodejs";
 
@@ -50,10 +52,40 @@ export async function POST(req: Request) {
     });
 
     let transcriptText: string | null = null;
+    
+    // Handle text files
     if ((file.type || "").startsWith("text/") || /\.(md|txt)$/i.test(file.name)) {
       const text = buffer.toString("utf-8");
       transcriptText = text.slice(0, 200_000);
-    } else if ((file.type || "").startsWith("audio/") || (file.type || "").startsWith("video/") || /\.(mp3|m4a|wav|mp4|mov)$/i.test(file.name)) {
+    } 
+    // Handle PDF files
+    else if (file.type === "application/pdf" || /\.pdf$/i.test(file.name)) {
+      await prisma.job.update({ where: { id: job.id }, data: { message: "Extracting PDF text", progress: 20 } });
+      try {
+        const pdfData = await pdfParse(buffer);
+        transcriptText = pdfData.text.slice(0, 200_000);
+        await prisma.job.update({ where: { id: job.id }, data: { message: "PDF text extracted", progress: 80 } });
+      } catch (e: any) {
+        console.error("PDF parsing error:", e);
+        await prisma.job.update({ where: { id: job.id }, data: { status: "FAILED", message: "PDF extraction failed" } });
+        return NextResponse.json({ error: "PDF extraction failed" }, { status: 500 });
+      }
+    }
+    // Handle DOCX files
+    else if (file.type === "application/vnd.openxmlformats-officedocument.wordprocessingml.document" || /\.docx$/i.test(file.name)) {
+      await prisma.job.update({ where: { id: job.id }, data: { message: "Extracting DOCX text", progress: 20 } });
+      try {
+        const result = await mammoth.extractRawText({ buffer });
+        transcriptText = result.value.slice(0, 200_000);
+        await prisma.job.update({ where: { id: job.id }, data: { message: "DOCX text extracted", progress: 80 } });
+      } catch (e: any) {
+        console.error("DOCX parsing error:", e);
+        await prisma.job.update({ where: { id: job.id }, data: { status: "FAILED", message: "DOCX extraction failed" } });
+        return NextResponse.json({ error: "DOCX extraction failed" }, { status: 500 });
+      }
+    }
+    // Handle audio/video files
+    else if ((file.type || "").startsWith("audio/") || (file.type || "").startsWith("video/") || /\.(mp3|m4a|wav|mp4|mov)$/i.test(file.name)) {
       await prisma.job.update({ where: { id: job.id }, data: { message: "Transcribing", status: "RUNNING", progress: 20 } });
       try {
         const audio = new Blob([buffer], { type: file.type || "audio/mpeg" });

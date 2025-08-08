@@ -51,12 +51,24 @@
   - 100MB text/audio/video upload success; visible job progress; generated SOP opens in editor; MD/PDF export downloadable.
 
 ### Epic B: Dashboard & Discovery
-- B1 Overview cards (SOPs, Sources, Jobs) with deltas and sparklines
-- B2 Recent SOPs list with filters (status, q), quick actions
-- B3 SOPs/Sources/Jobs list pages (org-scoped)
+- B1 Overview & Activity (real‑time)
+  - Stat cards (SOPs, Sources, Jobs) with deltas/sparklines
+  - Timeframe selector (7/30/90d) that drives both cards and lists
+  - Live Activity widget (last N events: uploads, job progress, saves, publishes) fed by SSE
+- B2 Lists & Filtering
+  - Recent SOPs with URL‑persisted filters (status, q, owner, tags) and quick actions (preview, export, share)
+  - Saved views (e.g., “My Drafts”, “Changed last 7d”) with shareable URLs; stat‑card click applies filters
+  - Rows live‑update while jobs or edits happen (SSE)
+- B3 Org‑scoped pages
+  - SOPs/Sources/Jobs index pages (org scoping enforced) with owner/tag chips, status dots, time‑ago
 - B4 Global search & Command palette (V1)
+  - Cmd/Ctrl‑K opens palette with grouped results (SOPs, Sources, Jobs) and quick actions (New, Upload, Import)
 - Acceptance:
-  - SSR stats <200ms TTFB locally; status filters persist via URL.
+  - Overview SSR TTFB <200ms locally
+  - Filters/sorts/search persist in URL and restore on reload
+  - Stat‑card click navigates to lists with filters applied; timeframe syncs cards and lists
+  - Activity feed and list rows update within <1s via SSE
+  - Saved views can be created, named, shared, and loaded in <200ms locally
 
 ### Epic C: Auth & Orgs (multi‑tenant)
 - C1 Auth.js (Email/Google), sessions
