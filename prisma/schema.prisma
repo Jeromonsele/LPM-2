@@ -1,0 +1,203 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+  engineType = "library"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Source {
+  id              String   @id @default(cuid())
+  createdAt       DateTime @default(now())
+  kind            SourceKind
+  originalName    String?
+  mimeType        String?
+  sizeBytes       Int?
+  filePath        String?
+  transcriptText  String?
+  notes           String?
+  orgId           String?
+  org             Organization? @relation(fields: [orgId], references: [id])
+
+  sop             Sop[]
+  jobs            Job[]
+}
+
+model Sop {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  title       String
+  contentMd   String   // Markdown content
+  audience    String?  // e.g., role-tailored audience label
+  status      SopStatus @default(DRAFT)
+  orgId       String?
+  org         Organization? @relation(fields: [orgId], references: [id])
+
+  sourceId    String?
+  source      Source?  @relation(fields: [sourceId], references: [id])
+
+  versions    SopVersion[]
+  jobs        Job[]
+  chatThreads ChatThread[]
+}
+
+enum SourceKind {
+  TEXT
+  AUDIO
+  VIDEO
+}
+
+enum SopStatus {
+  DRAFT
+  PUBLISHED
+}
+
+model SopVersion {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  version    Int
+  title      String
+  audience   String?
+  contentMd  String
+
+  sopId      String
+  sop        Sop      @relation(fields: [sopId], references: [id])
+
+  @@unique([sopId, version])
+}
+
+model Job {
+  id         String    @id @default(cuid())
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  type       JobType
+  status     JobStatus @default(QUEUED)
+  progress   Int       @default(0) // 0-100
+  message    String?
+
+  sourceId   String?
+  source     Source?   @relation(fields: [sourceId], references: [id])
+  sopId      String?
+  sop        Sop?      @relation(fields: [sopId], references: [id])
+  orgId      String?
+  org        Organization? @relation(fields: [orgId], references: [id])
+}
+
+enum JobType {
+  ANALYZE_SOURCE
+  GENERATE_SOP
+}
+
+enum JobStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+model ChatThread {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  sopId     String
+  sop       Sop      @relation(fields: [sopId], references: [id])
+  messages  ChatMessage[]
+}
+
+model ChatMessage {
+  id         String   @id @default(cuid())
+  createdAt  DateTime @default(now())
+  role       ChatRole
+  content    String
+  threadId   String
+  thread     ChatThread @relation(fields: [threadId], references: [id])
+}
+
+enum ChatRole {
+  user
+  assistant
+}
+
+// Auth + orgs
+model User {
+  id            String   @id @default(cuid())
+  name          String?
+  email         String?  @unique
+  emailVerified DateTime?
+  image         String?
+
+  memberships   Membership[]
+  accounts      Account[]
+  sessions      Session[]
+}
+
+model Organization {
+  id          String       @id @default(cuid())
+  name        String
+  createdAt   DateTime     @default(now())
+  memberships Membership[]
+  sops        Sop[]
+  sources     Source[]
+  jobs        Job[]
+}
+
+model Membership {
+  id        String   @id @default(cuid())
+  userId    String
+  orgId     String
+  role      Role     @default(EDITOR)
+
+  user      User     @relation(fields: [userId], references: [id])
+  org       Organization @relation(fields: [orgId], references: [id])
+
+  @@unique([userId, orgId])
+}
+
+enum Role {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+// NextAuth Prisma Adapter tables
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}

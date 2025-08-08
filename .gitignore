@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+/src/generated/prisma
+
+NEXTAUTH_URL=http://localhost:3001
+NEXTAUTH_SECRET=<32+ byte random>
