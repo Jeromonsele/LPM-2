@@ -59,6 +59,16 @@ export async function POST(req: Request) {
         sourceId,
       },
     });
+    // Create initial version v1
+    await prisma.sopVersion.create({
+      data: {
+        sopId: sop.id,
+        version: 1,
+        title: sop.title,
+        audience: sop.audience ?? undefined,
+        contentMd: sop.contentMd,
+      },
+    });
 
     return NextResponse.json(sop);
   } catch (error) {
