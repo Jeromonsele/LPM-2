@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
+import { jobsEvents } from "@/lib/queue";
 
 export const runtime = "nodejs";
 
@@ -8,7 +8,13 @@ export async function GET() {
   const encoder = new TextEncoder();
   const stream = new ReadableStream({
     start(controller) {
-      controller.enqueue(encoder.encode("event: ping\n" + `data: ${JSON.stringify({ ok: true })}\n\n`));
+      const send = (event: string, data: unknown) => {
+        controller.enqueue(encoder.encode(`event: ${event}\n` + `data: ${JSON.stringify(data)}\n\n`));
+      };
+      const onCompleted = ({ jobId, returnvalue }: any) => send("completed", { jobId, returnvalue });
+      const onFailed = ({ jobId, failedReason }: any) => send("failed", { jobId, failedReason });
+      jobsEvents.on("completed", onCompleted);
+      jobsEvents.on("failed", onFailed);
     },
   });
   return new NextResponse(stream, {
